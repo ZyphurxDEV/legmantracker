@@ -32,6 +32,8 @@ reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v LegmanTracker
 echo   [3/4] Removing notification registry keys...
 reg delete "HKCU\Software\Classes\AppUserModelId\Zyphurx.LegmanTracker" /f >nul 2>&1
 reg delete "HKCU\Software\Classes\AppUserModelId\LegmanTracker" /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Zyphurx.LegmanTracker" /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\LegmanTracker" /f >nul 2>&1
 
 echo   [4/4] Deleting app data folder...
 rmdir /s /q "%APPDATA%\LegmanTracker" >nul 2>&1
