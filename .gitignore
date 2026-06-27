@@ -7,7 +7,6 @@ env/
 build/
 dist/
 *.spec
-icon.ico
 
 # --- python ---
 __pycache__/

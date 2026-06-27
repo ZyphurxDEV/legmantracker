@@ -70,10 +70,10 @@ build.bat
 ```
 
 It creates a virtual environment, installs the dependencies, and runs PyInstaller
-(which builds the exe icon straight from `legman.png`). The result is
-**`dist\LegmanTracker.exe`** — a single ~38 MB file you can copy anywhere (no
-Python needed to run it). `build.bat` closes any running copy first so the rebuild
-doesn't fail on a locked exe.
+(the app icon comes from `icon.ico`). The result is **`dist\LegmanTracker.exe`** —
+a single ~38 MB file you can copy anywhere (no Python needed to run it).
+`build.bat` closes any running copy first so the rebuild doesn't fail on a locked
+exe.
 
 Run from source without building:
 

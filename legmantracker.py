@@ -1227,9 +1227,9 @@ def register_aumid():
     as banners (Windows only shows banners for recognised app IDs) and carry our
     name + icon. The icon must live somewhere persistent (not the onefile temp
     dir), so copy the bundled png into the data folder first."""
-    icon_path = os.path.join(DATA_DIR, "app_icon.png")
+    icon_path = os.path.join(DATA_DIR, "app_icon.ico")
     try:
-        src = resource_path("legman.png")
+        src = resource_path("icon.ico")
         if os.path.exists(src):
             with open(src, "rb") as f:
                 data = f.read()
@@ -1259,7 +1259,7 @@ def resource_path(name):
 
 
 def _fallback_icon(size=64):
-    """Drawn 'L' badge, used only if legman.png is somehow missing (keeps the app
+    """Drawn 'L' badge, used only if icon.ico is somehow missing (keeps the app
     icon working without pulling in Pillow at runtime)."""
     pm = QtGui.QPixmap(size, size)
     pm.fill(Qt.transparent)
@@ -1280,17 +1280,21 @@ def _fallback_icon(size=64):
 
 
 def app_icon_pixmap(size=64):
-    """The legman app icon as a QPixmap (falls back to a drawn 'L' if missing)."""
-    path = resource_path("legman.png")
+    """The legman app icon as a QPixmap (falls back to a drawn 'L' if missing).
+    Uses QIcon.pixmap so the best-matching frame is picked from the multi-res
+    .ico instead of upscaling a small one."""
+    path = resource_path("icon.ico")
     if os.path.exists(path):
-        pm = QtGui.QPixmap(path)
-        if not pm.isNull():
-            return pm.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        ic = QtGui.QIcon(path)
+        if not ic.isNull():
+            pm = ic.pixmap(size, size)
+            if not pm.isNull():
+                return pm
     return _fallback_icon(size)
 
 
 def app_qicon():
-    path = resource_path("legman.png")
+    path = resource_path("icon.ico")
     if os.path.exists(path):
         ic = QtGui.QIcon(path)
         if not ic.isNull():
@@ -2366,7 +2370,7 @@ def run_selftest():
         TOASTS_ON = True
         notify(APP_NAME, ["self-test OK", "notifications are working"])
         time.sleep(6)
-        icon_ok = os.path.exists(resource_path("legman.png"))
+        icon_ok = os.path.exists(resource_path("icon.ico"))
         with open(result_path, "w", encoding="utf-8") as f:
             f.write(f"OK\ntoast=yes\nqt={'yes' if qt_ok else 'NO'}\n"
                     f"svg={'yes' if svg_ok else 'NO'}\nicon={'yes' if icon_ok else 'NO'}\n")

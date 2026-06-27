@@ -30,8 +30,8 @@ if errorlevel 1 (
 echo Building exe...
 "%PY%" -m PyInstaller --noconfirm --onefile --windowed ^
     --name LegmanTracker ^
-    --icon legman.png ^
-    --add-data "legman.png;." ^
+    --icon icon.ico ^
+    --add-data "icon.ico;." ^
     --collect-all windows_toasts ^
     --collect-all winrt ^
     --hidden-import winrt._winrt ^
