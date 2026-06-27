@@ -626,7 +626,7 @@ def notify(title, lines, launch_url=None, image_path=None):
         images = []
         if image_path and os.path.exists(image_path):
             try:
-                images = [ToastDisplayImage.fromPath(image_path, position=ToastImagePosition.AppLogo)]
+                images = [ToastDisplayImage.fromPath(image_path, position=ToastImagePosition.Inline)]
             except Exception:
                 images = []
         toast = Toast(text_fields=fields, launch_action=(launch_url or None), images=images)
