@@ -61,6 +61,7 @@ ICON_DIR = os.path.join(DATA_DIR, "icons")
 
 HISTORY_MAX = 100
 
+
 POLL_INTERVAL_DEFAULT = 60
 POLL_INTERVAL_MIN = 30
 POLL_INTERVAL_MAX = 3600
@@ -626,7 +627,7 @@ def notify(title, lines, launch_url=None, image_path=None):
         images = []
         if image_path and os.path.exists(image_path):
             try:
-                images = [ToastDisplayImage.fromPath(image_path, position=ToastImagePosition.Inline)]
+                images = [ToastDisplayImage.fromPath(image_path, position=ToastImagePosition.AppLogo)]
             except Exception:
                 images = []
         toast = Toast(text_fields=fields, launch_action=(launch_url or None), images=images)
