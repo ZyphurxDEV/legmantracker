@@ -46,10 +46,8 @@ from PySide6.QtCore import Qt
 
 APP_NAME = "Legman Tracker"
 APP_ID = "legmantracker"
-AUMID = "LegmanTracker"  # registered so Windows shows toast banners with our name/icon
+AUMID = "LegmanTracker"
 
-# award-count alerts only fire for badges with <= this many owners (avoids spam
-# from popular badges). new/deleted badge alerts fire regardless of count.
 BADGE_RARE_THRESHOLD = 250
 
 UA = {"User-Agent": "LegmanTracker/1.0 (+https://www.roblox.com)"}
@@ -61,13 +59,12 @@ SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 LOG_FILE = os.path.join(DATA_DIR, "legmantracker.log")
 ICON_DIR = os.path.join(DATA_DIR, "icons")
 
-HISTORY_MAX = 100  # how many recent updates to keep
+HISTORY_MAX = 100
 
-# how often to check, in seconds (user-configurable in the settings page)
 POLL_INTERVAL_DEFAULT = 60
-POLL_INTERVAL_MIN = 30      # don't hammer the roblox api / get rate-limited
+POLL_INTERVAL_MIN = 30
 POLL_INTERVAL_MAX = 3600
-_poll_interval = POLL_INTERVAL_DEFAULT  # cached; read by the poller every wait tick
+_poll_interval = POLL_INTERVAL_DEFAULT
 
 STATUS_LABELS = {
     "Playable": "playable",
@@ -81,7 +78,6 @@ STATUS_LABELS = {
     "None": "playable",
 }
 
-# accent colour per feed event type
 ACCENT = {
     "update": "#00d488",
     "added": "#3fd0dd",
@@ -103,17 +99,14 @@ TRACK_LOCK = threading.RLock()
 HISTORY_LOCK = threading.RLock()
 STOP = threading.Event()
 
-LOOP = None        # asyncio loop (poller thread)
-POLL_LOCK = None   # asyncio.Lock, created in the loop thread
-TOASTS_ON = False  # set once the AUMID is registered; toasters are made per-call
-SIGNALS = None     # Signals() - bridges poller thread -> Qt gui thread
-POPUP_VISIBLE = False  # True while the flyout panel is open -> suppress toasts
+LOOP = None
+POLL_LOCK = None
+TOASTS_ON = False
+SIGNALS = None
+POPUP_VISIBLE = False
 
 
 def _make_toaster():
-    # MUST be created on the same thread that shows the toast - the underlying
-    # WinRT/COM object is thread-bound, so a shared instance throws
-    # RPC_E_WRONG_THREAD when used from the poller thread.
     return InteractableWindowsToaster(APP_NAME, notifierAUMID=AUMID)
 
 
@@ -192,8 +185,6 @@ def parse_place_id(text):
     return None
 
 
-# Roblox replaces a game's name with a bracketed placeholder when it goes
-# private/moderated, e.g. "[ TITLE UNAVAILABLE ]", "[ Content Deleted ]".
 _PLACEHOLDER_KEYWORDS = ("unavailable", "content deleted", "not available", "deleted", "moderat")
 
 
@@ -202,7 +193,7 @@ def is_placeholder_name(name):
         return True
     s = str(name).strip()
     if not (s.startswith("[") and s.endswith("]")):
-        return False  # real names like "[24H🎣] Adopt Me!" have text after the ]
+        return False
     inner = s[1:-1].strip().lower()
     return any(kw in inner for kw in _PLACEHOLDER_KEYWORDS)
 
@@ -260,7 +251,6 @@ def remove_tracked(key):
         return None
 
 
-# per-game tracking toggles - what raises a feed event / toast
 NOTIFY_DEFAULTS = {
     "game_update": True,
     "subplace_update": True,
@@ -272,7 +262,6 @@ NOTIFY_DEFAULTS = {
     "badge_rare_award": False,
 }
 
-# (key, label, description) rows shown in the per-game settings page
 NOTIFY_CATEGORIES = [
     ("game_update", "game updates", "the main game is updated"),
     ("subplace_update", "place updates", "a subplace is updated"),
@@ -365,7 +354,6 @@ def _badge_id_from_url(url):
     return m.group(1) if m else None
 
 
-# --- app settings (settings.json) ---------------------------------------- #
 
 def load_settings():
     with TRACK_LOCK:
@@ -597,7 +585,7 @@ async def fetch_badge_icon(session, badge_id):
                 data = await resp.json()
                 items = data.get("data", []) if isinstance(data, dict) else []
                 if items and items[0].get("state") == "Completed":
-                    return items[0].get("imageUrl")  # skip blank/pending placeholders
+                    return items[0].get("imageUrl")
     except Exception:
         pass
     return None
@@ -664,20 +652,13 @@ def emit_tracked_changed():
 # outage / false-positive guards
 # --------------------------------------------------------------------------- #
 
-# per-request timeouts so a hung roblox endpoint can't stall the whole sweep
 CLIENT_TIMEOUT = aiohttp.ClientTimeout(total=20, connect=8, sock_read=12)
 
-# a "risky" change (status flip, deletion) must be observed this many sweeps in
-# a row before it alerts, so a single stale/bad poll can't fire a false alert.
 CONFIRM_POLLS = 2
 
-# if at least this fraction of tracked games fail or come back empty in one
-# sweep, assume the roblox api is degraded and drop every alert from that sweep.
 OUTAGE_FRACTION = 0.5
 OUTAGE_MIN_GAMES = 3
 
-# in-memory confirmation counters (not persisted): key -> { cat -> {item: count} }
-# plus key -> {"status": [value, count]}
 PENDING = {}
 
 
@@ -729,9 +710,9 @@ async def poll_once(session):
             return
 
         updated_state = {}
-        sweep_events = []   # buffered; flushed only if the sweep looks healthy
+        sweep_events = []
         total = 0
-        bad = 0             # failed / (unconfirmed) empty fetches this sweep
+        bad = 0
 
         for key, info in list(tracked.items()):
             if not isinstance(info, dict):
@@ -749,11 +730,9 @@ async def poll_once(session):
                 games_list = await fetch_game(session, universe_id)
                 if games_list is None:
                     bad += 1
-                    continue  # transient failure - leave untouched
+                    continue
 
                 if not games_list:
-                    # an empty result is usually a transient hiccup; require it to
-                    # repeat before believing the game really went private.
                     if _confirm_count(key, "empty", "_") < CONFIRM_POLLS:
                         bad += 1
                         continue
@@ -762,9 +741,6 @@ async def poll_once(session):
                     root_place_id = cached_root
                     game_name = recover_name(info, cached_name, cached_root)
                 elif is_placeholder_name(games_list[0].get("name")):
-                    # game still returns a row but with a "[ TITLE UNAVAILABLE ]"
-                    # placeholder name => it went private/moderated. Keep the real
-                    # name and mark it private (so a status-change alert fires).
                     _confirm_clear(key, "empty", "_")
                     gd = games_list[0]
                     current_updated = gd.get("updated") or last_updated
@@ -792,7 +768,6 @@ async def poll_once(session):
                 notify_cfg = get_notify(info)
                 new_info = dict(info)
 
-                # ---- status change (debounced - one bad poll can't flip it) ----
                 committed_status = current_status
                 if last_status and current_status != last_status:
                     if _status_seen(key, current_status) >= CONFIRM_POLLS:
@@ -811,11 +786,10 @@ async def poll_once(session):
                                 "url": game_url, "icon_path": icon_path, "ts": int(time.time()),
                             })
                     else:
-                        committed_status = last_status  # hold old value until confirmed
+                        committed_status = last_status
                 else:
                     _status_clear(key)
 
-                # ---- subplaces (state always maintained; alerts gated) ----
                 last_subplaces = info.get("subplaces", {})
                 current_subplaces = dict(last_subplaces)
                 updated_place_names, added_place_names, deleted_place_names = [], [], []
@@ -843,24 +817,20 @@ async def poll_once(session):
                             current_subplaces[pid] = {"name": pname, "updated": updated_ts}
 
                             if pid in last_subplaces:
-                                # root place update == "game updated"; don't double-report it
                                 if (old_ts and updated_ts and is_real_update(old_ts, updated_ts)
                                         and str(root_place_id) != pid):
                                     updated_place_names.append(pname)
                             elif last_subplaces:
                                 added_place_names.append(pname)
 
-                        # deletion debounce: a place missing for < CONFIRM_POLLS sweeps
-                        # is carried forward (a truncated/bad response, not a delete).
                         for old_pid, old_sp in last_subplaces.items():
                             if old_pid in current_subplaces:
                                 _confirm_clear(key, "del_sub", old_pid)
                             elif _confirm_count(key, "del_sub", old_pid) >= CONFIRM_POLLS:
                                 deleted_place_names.append(old_sp.get("name") or "(unnamed)")
                             else:
-                                current_subplaces[old_pid] = old_sp  # carry forward
+                                current_subplaces[old_pid] = old_sp
 
-                # ---- update event (green): game updated + subplace updates ----
                 upd_lines = []
                 if notify_cfg["game_update"] and universe_changed:
                     upd_lines.append("game updated")
@@ -877,7 +847,6 @@ async def poll_once(session):
                     })
                     logger.info("update %s: %s", game_name, upd_lines)
 
-                # ---- added (cyan) ----
                 if notify_cfg["subplace_add"] and added_place_names:
                     al = [f"added: {nm}" for nm in added_place_names]
                     sweep_events.append({
@@ -886,7 +855,6 @@ async def poll_once(session):
                         "url": game_url, "icon_path": icon_path, "ts": int(time.time()),
                     })
 
-                # ---- deleted (red) ----
                 if notify_cfg["subplace_delete"] and deleted_place_names:
                     dl = [f"deleted: {nm}" for nm in deleted_place_names]
                     sweep_events.append({
@@ -895,14 +863,12 @@ async def poll_once(session):
                         "url": game_url, "icon_path": icon_path, "ts": int(time.time()),
                     })
 
-                # ---- badges (only fetched when a badge option is on) ----
                 need_badges = (notify_cfg["badge_new"] or notify_cfg["badge_delete"]
                                or notify_cfg["badge_rare_award"])
                 if need_badges and current_status != "private/hidden":
                     all_badges = await fetch_all_badges(session, universe_id)
                     if all_badges is not None:
                         last_badges = info.get("badges", {})
-                        # first sweep after enabling = silent baseline (no alerts)
                         full_snap = info.get("badges_full_snapshot", False)
                         current_badges = {}
                         for b in all_badges:
@@ -926,7 +892,6 @@ async def poll_once(session):
                                     })
                             else:
                                 old_count = old.get("awarded_count", 0) or 0
-                                # award counts only climb; a drop is a cache flap - keep the max.
                                 if awarded < old_count:
                                     awarded = old_count
                                 current_badges[bid] = {"name": bname, "awarded_count": awarded}
@@ -943,13 +908,11 @@ async def poll_once(session):
                                         "overlay_icon": bicon, "ts": int(time.time()),
                                     })
 
-                        # badge deletion debounce (carry forward unconfirmed)
                         for old_bid, old_b in last_badges.items():
                             if old_bid in current_badges:
                                 _confirm_clear(key, "del_badge", old_bid)
                             elif _confirm_count(key, "del_badge", old_bid) >= CONFIRM_POLLS:
                                 if full_snap and notify_cfg["badge_delete"]:
-                                    # reuse the badge's icon if we cached it before it was deleted
                                     cached = os.path.join(ICON_DIR, f"badge_{old_bid}.png")
                                     sweep_events.append({
                                         "type": "badge_del", "universe_id": str(key), "game_name": game_name,
@@ -961,14 +924,13 @@ async def poll_once(session):
                                         "ts": int(time.time()),
                                     })
                             else:
-                                current_badges[old_bid] = old_b  # carry forward
+                                current_badges[old_bid] = old_b
 
                         new_info["badges"] = current_badges
                         new_info["badges_full_snapshot"] = True
                 else:
                     new_info["badges_full_snapshot"] = False
 
-                # ---- persist (forward-only timestamp; committed status) ----
                 if get_unix_ts(current_updated) > get_unix_ts(last_updated or ""):
                     new_info["last_updated"] = current_updated
                 new_info["last_status"] = committed_status
@@ -985,14 +947,13 @@ async def poll_once(session):
             except Exception:
                 logger.exception("error checking game %s", key)
 
-        # ---- circuit breaker: if the api looks degraded, drop the whole sweep ----
         if total >= OUTAGE_MIN_GAMES and bad >= total * OUTAGE_FRACTION:
             logger.warning("possible roblox api outage: %d/%d games bad - dropping %d alert(s)",
                            bad, total, len(sweep_events))
             for k in list(tracked):
-                _drop_pending(k)  # reset confirmations so stale data can't accumulate
+                _drop_pending(k)
             emit_status("roblox api looks down — alerts paused")
-            return  # don't persist; re-evaluate from the last good state next sweep
+            return
 
         for ev in sweep_events:
             push_event(ev)
@@ -1102,7 +1063,7 @@ async def backfill_badge_icons(session):
     if not hist:
         return
     changed = False
-    fetch_targets = {}  # badge_id -> events (live badges we can still fetch)
+    fetch_targets = {}
     for ev in hist:
         typ = ev.get("type")
         if typ not in ("badge", "badge_del"):
@@ -1114,10 +1075,10 @@ async def backfill_badge_icons(session):
         if not bid:
             continue
         cached = os.path.join(ICON_DIR, f"badge_{bid}.png")
-        if os.path.exists(cached):           # reuse a previously-downloaded icon
+        if os.path.exists(cached):
             ev["overlay_icon"] = cached
             changed = True
-        elif typ == "badge":                 # deleted badges can't be re-fetched
+        elif typ == "badge":
             fetch_targets.setdefault(bid, []).append(ev)
     for bid, evs in fetch_targets.items():
         try:
@@ -1143,7 +1104,6 @@ async def poller_main():
     global POLL_LOCK
     POLL_LOCK = asyncio.Lock()
     logger.info("poller started (every %ds)", current_poll_interval())
-    # one pooled session for the whole run (keep-alive, fewer TCP/TLS handshakes)
     connector = aiohttp.TCPConnector(limit=20, ttl_dns_cache=300)
     async with aiohttp.ClientSession(headers=UA, timeout=CLIENT_TIMEOUT, connector=connector) as session:
         try:
@@ -1156,8 +1116,6 @@ async def poller_main():
                 await poll_once(session)
             except Exception:
                 logger.exception("poll sweep crashed")
-            # wait until the next check, re-reading the interval each second so a
-            # change in the settings page takes effect almost immediately
             while not STOP.is_set() and (time.monotonic() - start) < current_poll_interval():
                 await asyncio.sleep(1)
     logger.info("poller stopped")
@@ -1302,7 +1260,6 @@ def app_qicon():
     return QtGui.QIcon(_fallback_icon(64))
 
 
-# crisp line icons (Feather-style, 24x24, stroke = {c}) rendered from SVG
 ICON_SVGS = {
     "refresh": '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>'
                '<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
@@ -1318,7 +1275,6 @@ ICON_SVGS = {
     "user": '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
 }
 
-# medal-with-star (mixed fill/stroke, so it's a full standalone svg, not wrapped)
 def _medal_svg(color):
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">'
@@ -1347,7 +1303,7 @@ _SVG_WRAP = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="
              'stroke="{c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{body}</svg>')
 
 
-_SVG_PM_CACHE = {}  # (name, size, color) -> QPixmap (icons are deterministic & reused a lot)
+_SVG_PM_CACHE = {}
 
 
 def svg_pixmap(name, size=16, color="#8b98a4"):
@@ -1357,7 +1313,7 @@ def svg_pixmap(name, size=16, color="#8b98a4"):
         return cached
     svg = _SVG_WRAP.format(c=color, body=ICON_SVGS[name])
     renderer = QtSvg.QSvgRenderer(QtCore.QByteArray(svg.encode("utf-8")))
-    scale = 2  # render at 2x for crispness on high-dpi displays
+    scale = 2
     pm = QtGui.QPixmap(size * scale, size * scale)
     pm.fill(Qt.transparent)
     p = QtGui.QPainter(pm)
@@ -1373,9 +1329,6 @@ def svg_icon(name, size=16, color="#8b98a4"):
     return QtGui.QIcon(svg_pixmap(name, size, color))
 
 
-# Icon-file pixmaps are cached by (path, mtime, size) so the same game icon isn't
-# re-read+re-rendered for every feed card. mtime keys it so a re-downloaded badge
-# icon (same path, new bytes) still refreshes.
 @functools.lru_cache(maxsize=256)
 def _rounded_cached(path, mtime, size, radius):
     src = QtGui.QPixmap(path)
@@ -1473,7 +1426,7 @@ def _compose_icons(base_pm, corner_pm, size=38):
     p.drawPixmap(0, 0, base_pm)
     bx, by = size - osz, size - osz
     p.setPen(Qt.NoPen)
-    p.setBrush(QtGui.QColor(16, 22, 28))   # dark ring to separate corner from base
+    p.setBrush(QtGui.QColor(16, 22, 28))
     p.drawEllipse(bx - 2, by - 2, osz + 3, osz + 3)
     p.drawPixmap(bx, by, corner_pm)
     p.end()
@@ -1648,9 +1601,6 @@ class ElidedLabel(QtWidgets.QLabel):
     def __init__(self, text, color, parent=None):
         super().__init__(text, parent)
         self._color = QtGui.QColor(color)
-        # Preferred policy + zero size hints: the label can shrink below its
-        # text width (so it elides) without ever demanding/claiming extra width
-        # that would push the card edge.
         self.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
 
     def setText(self, t):
@@ -1747,7 +1697,6 @@ def make_update_card(event):
 
     mid = QtWidgets.QVBoxLayout()
     mid.setSpacing(2)
-    # top line: name (elides) + relative time pinned right
     top = QtWidgets.QHBoxLayout()
     top.setSpacing(8)
     name = ElidedLabel(event.get("game_name", "unknown game"), "#eaf1f6")
@@ -1755,7 +1704,7 @@ def make_update_card(event):
     t = QtWidgets.QLabel(rel_time(event.get("ts", 0)))
     t.setObjectName("cardTime")
     t.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-    card._time_label = t              # refreshed periodically by the popup's timer
+    card._time_label = t
     card._ts = event.get("ts", 0)
     top.addWidget(name, 1)
     top.addWidget(t, 0)
@@ -1867,13 +1816,13 @@ class HintFilter(QtCore.QObject):
         if et == QtCore.QEvent.Enter:
             tip = obj.toolTip() if hasattr(obj, "toolTip") else ""
             if tip:
-                self.popup.show_hint(tip)   # instant, on cursor enter
+                self.popup.show_hint(tip)
                 self._active = obj
         elif et == QtCore.QEvent.Leave and obj is self._active:
             self.popup.clear_hint()
             self._active = None
         elif et == QtCore.QEvent.ToolTip:
-            return True  # never show the native (delayed) tooltip window
+            return True
         return False
 
 
@@ -1886,27 +1835,25 @@ class PopupWindow(QtWidgets.QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setFixedWidth(384)
         self._last_hide = 0.0
-        self._base_status = ""   # "real" status text, restored when not hovering
+        self._base_status = ""
         self._hovering = False
-        self._loaded = False     # feed/tracked built lazily on first open (fast startup)
+        self._loaded = False
         self._tracked_dirty = False
         self._build()
 
-    # ---- ui ----
     def _build(self):
         outer = QtWidgets.QVBoxLayout(self)
-        outer.setContentsMargins(16, 16, 16, 16)  # room for the shadow
+        outer.setContentsMargins(16, 16, 16, 16)
 
         card = QtWidgets.QFrame()
         card.setObjectName("card")
-        self.card = card  # painted-shadow target (see paintEvent)
+        self.card = card
         outer.addWidget(card)
 
         v = QtWidgets.QVBoxLayout(card)
         v.setContentsMargins(16, 14, 16, 14)
         v.setSpacing(12)
 
-        # header
         header = QtWidgets.QHBoxLayout()
         header.setSpacing(9)
         logo = QtWidgets.QLabel()
@@ -1949,7 +1896,6 @@ class PopupWindow(QtWidgets.QWidget):
         header.addWidget(closeb)
         v.addLayout(header)
 
-        # tabs
         tabs = QtWidgets.QHBoxLayout()
         tabs.setSpacing(6)
         self.tab_recent = QtWidgets.QPushButton("recent updates")
@@ -1978,20 +1924,18 @@ class PopupWindow(QtWidgets.QWidget):
         tabs.addWidget(self.clear_btn)
         v.addLayout(tabs)
 
-        # stacked pages: 0 recent, 1 tracked, 2 per-game settings
         self.stack = QtWidgets.QStackedWidget()
         self.recent_inner, self.recent_lay, recent_scroll = self._make_scroll_page()
         self.tracked_inner, self.tracked_lay, tracked_scroll = self._make_scroll_page()
         self.settings_inner, self.settings_lay, settings_scroll = self._make_scroll_page()
         self.app_inner, self.app_lay, app_scroll = self._make_scroll_page()
-        self.stack.addWidget(recent_scroll)      # 0
-        self.stack.addWidget(tracked_scroll)     # 1
-        self.stack.addWidget(settings_scroll)    # 2 (per-game)
-        self.stack.addWidget(app_scroll)         # 3 (app settings)
+        self.stack.addWidget(recent_scroll)
+        self.stack.addWidget(tracked_scroll)
+        self.stack.addWidget(settings_scroll)
+        self.stack.addWidget(app_scroll)
         self.stack.setFixedHeight(312)
         v.addWidget(self.stack)
 
-        # add-game bar
         addrow = QtWidgets.QHBoxLayout()
         addrow.setSpacing(8)
         self.add_input = QtWidgets.QLineEdit()
@@ -2006,15 +1950,11 @@ class PopupWindow(QtWidgets.QWidget):
         addrow.addWidget(addb)
         v.addLayout(addrow)
 
-        # status
         self.status = QtWidgets.QLabel("")
         self.status.setObjectName("status")
         v.addWidget(self.status)
 
-        # feed + tracked rows are built lazily on first open (see _ensure_loaded)
-        # so startup is fast and we do no work if the panel is never opened.
 
-        # keep the "just now / Nm ago" labels fresh while the panel is open
         self._time_timer = QtCore.QTimer(self)
         self._time_timer.setInterval(20000)
         self._time_timer.timeout.connect(self._tick_times)
@@ -2038,36 +1978,30 @@ class PopupWindow(QtWidgets.QWidget):
         scroll.setWidget(inner)
         return inner, lay, scroll
 
-    # ---- data into ui ----
     def _ensure_loaded(self):
         if self._loaded:
             return
         self._loaded = True
-        for event in reversed(load_history()):   # oldest first so newest ends on top
+        for event in reversed(load_history()):
             self._add_card(event)
         self._refresh_empty(self.recent_lay, "no updates yet — they'll show up here")
         self.refresh_tracked()
 
     @staticmethod
     def _drop_item(item):
-        # reparent immediately (not just deleteLater) so the widget can't linger
-        # on screen as a ghost until the event loop processes the deletion
         if item is not None and item.widget() is not None:
             w = item.widget()
             w.setParent(None)
             w.deleteLater()
 
     def _add_card(self, event):
-        # remove empty-state placeholder if present
         self._strip_empty(self.recent_lay)
         card = make_update_card(event)
-        self.recent_lay.insertWidget(0, card)  # newest on top
-        # cap rendered cards
+        self.recent_lay.insertWidget(0, card)
         while self.recent_lay.count() - 1 > HISTORY_MAX:
             self._drop_item(self.recent_lay.takeAt(self.recent_lay.count() - 2))
 
     def on_update_event(self, event):
-        # if not built yet, the event is already in history and loads on first open
         if self._loaded:
             self._add_card(event)
 
@@ -2084,10 +2018,9 @@ class PopupWindow(QtWidgets.QWidget):
         if not self._loaded:
             return
         if not POPUP_VISIBLE:
-            self._tracked_dirty = True   # rebuild when reopened, not while hidden
+            self._tracked_dirty = True
             return
         self._tracked_dirty = False
-        # clear everything except the trailing stretch
         while self.tracked_lay.count() > 1:
             self._drop_item(self.tracked_lay.takeAt(0))
         data = load_tracked()
@@ -2107,7 +2040,6 @@ class PopupWindow(QtWidgets.QWidget):
         while self.settings_lay.count() > 1:
             self._drop_item(self.settings_lay.takeAt(0))
 
-        # header: back button + game name
         head = QtWidgets.QFrame()
         hl = QtWidgets.QHBoxLayout(head)
         hl.setContentsMargins(0, 0, 0, 2)
@@ -2215,7 +2147,6 @@ class PopupWindow(QtWidgets.QWidget):
                 return
 
     def _refresh_empty(self, lay, text):
-        # only add placeholder if there are no real rows
         has_row = any(lay.itemAt(i).widget() is not None for i in range(lay.count()))
         if has_row:
             return
@@ -2225,7 +2156,6 @@ class PopupWindow(QtWidgets.QWidget):
         lbl.setWordWrap(True)
         lay.insertWidget(0, lbl)
 
-    # ---- actions ----
     def _do_add(self):
         txt = self.add_input.text().strip()
         if not txt:
@@ -2277,7 +2207,6 @@ class PopupWindow(QtWidgets.QWidget):
         self._hovering = False
         self.status.setText(self._base_status)
 
-    # ---- show / hide behaviour ----
     def show_at_tray(self):
         self.adjustSize()
         scr = QtWidgets.QApplication.primaryScreen().availableGeometry()
@@ -2307,22 +2236,20 @@ class PopupWindow(QtWidgets.QWidget):
     def showEvent(self, e):
         global POPUP_VISIBLE
         POPUP_VISIBLE = True
-        self._ensure_loaded()         # build feed/tracked on first open
-        if self._tracked_dirty:       # tracked changed while we were hidden
+        self._ensure_loaded()
+        if self._tracked_dirty:
             self.refresh_tracked()
-        self._tick_times()            # refresh times right away when opened
+        self._tick_times()
         self._time_timer.start()
         super().showEvent(e)
 
     def hideEvent(self, e):
         global POPUP_VISIBLE
         POPUP_VISIBLE = False
-        self._time_timer.stop()       # no need to tick while hidden
+        self._time_timer.stop()
         super().hideEvent(e)
 
     def paintEvent(self, _):
-        # cheap static drop shadow behind the card (no QGraphicsEffect, so child
-        # repaints stay fast). Only repaints when this window's region is dirtied.
         card = getattr(self, "card", None)
         if card is None:
             return
@@ -2360,9 +2287,9 @@ def run_selftest():
         try:
             _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
             _app.setStyleSheet(STYLESHEET)
-            pm = svg_pixmap("settings", 16)   # exercises QtSvg rendering
+            pm = svg_pixmap("settings", 16)
             svg_ok = not pm.isNull()
-            _ = PopupWindow()                 # exercises every widget + icon
+            _ = PopupWindow()
             qt_ok = True
         except Exception:
             logger.exception("qt self-test failed")
@@ -2404,21 +2331,20 @@ def main():
     app.setWindowIcon(app_qicon())
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(STYLESHEET)
-    app.aboutToQuit.connect(_clear_pixmap_caches)   # free cached QPixmaps before teardown
+    app.aboutToQuit.connect(_clear_pixmap_caches)
 
     register_aumid()
     TOASTS_ON = True
     SIGNALS = Signals()
 
     popup = PopupWindow()
-    popup._hint_filter = HintFilter(popup)   # keep a ref so it isn't GC'd
+    popup._hint_filter = HintFilter(popup)
     app.installEventFilter(popup._hint_filter)
     SIGNALS.update_event.connect(popup.on_update_event)
     SIGNALS.tracked_changed.connect(popup.refresh_tracked)
     SIGNALS.status_message.connect(popup.set_status)
     SIGNALS.reload_feed.connect(popup.reload_recent)
 
-    # tray icon
     tray = QtWidgets.QSystemTrayIcon(app_qicon())
     tray.setToolTip("legman tracker")
 
@@ -2441,12 +2367,11 @@ def main():
     tray.setContextMenu(menu)
 
     def on_activated(reason):
-        if reason == QtWidgets.QSystemTrayIcon.Trigger:  # left click
+        if reason == QtWidgets.QSystemTrayIcon.Trigger:
             popup.toggle()
     tray.activated.connect(on_activated)
     tray.show()
 
-    # background poller
     threading.Thread(target=poller_thread, name="poller", daemon=True).start()
 
     logger.info("tray running")
