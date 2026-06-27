@@ -22,6 +22,7 @@ import json
 import time
 import asyncio
 import logging
+import functools
 import threading
 import traceback
 import webbrowser
@@ -1342,7 +1343,14 @@ _SVG_WRAP = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="
              'stroke="{c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{body}</svg>')
 
 
+_SVG_PM_CACHE = {}  # (name, size, color) -> QPixmap (icons are deterministic & reused a lot)
+
+
 def svg_pixmap(name, size=16, color="#8b98a4"):
+    ck = (name, size, color)
+    cached = _SVG_PM_CACHE.get(ck)
+    if cached is not None:
+        return cached
     svg = _SVG_WRAP.format(c=color, body=ICON_SVGS[name])
     renderer = QtSvg.QSvgRenderer(QtCore.QByteArray(svg.encode("utf-8")))
     scale = 2  # render at 2x for crispness on high-dpi displays
@@ -1353,6 +1361,7 @@ def svg_pixmap(name, size=16, color="#8b98a4"):
     renderer.render(p)
     p.end()
     pm.setDevicePixelRatio(scale)
+    _SVG_PM_CACHE[ck] = pm
     return pm
 
 
@@ -1360,9 +1369,11 @@ def svg_icon(name, size=16, color="#8b98a4"):
     return QtGui.QIcon(svg_pixmap(name, size, color))
 
 
-def rounded_pixmap_from_path(path, size=40, radius=10):
-    if not path or not os.path.exists(path):
-        return None
+# Icon-file pixmaps are cached by (path, mtime, size) so the same game icon isn't
+# re-read+re-rendered for every feed card. mtime keys it so a re-downloaded badge
+# icon (same path, new bytes) still refreshes.
+@functools.lru_cache(maxsize=256)
+def _rounded_cached(path, mtime, size, radius):
     src = QtGui.QPixmap(path)
     if src.isNull():
         return None
@@ -1374,14 +1385,13 @@ def rounded_pixmap_from_path(path, size=40, radius=10):
     clip = QtGui.QPainterPath()
     clip.addRoundedRect(0, 0, size, size, radius, radius)
     p.setClipPath(clip)
-    x = (size - src.width()) // 2
-    y = (size - src.height()) // 2
-    p.drawPixmap(x, y, src)
+    p.drawPixmap((size - src.width()) // 2, (size - src.height()) // 2, src)
     p.end()
     return out
 
 
-def _circular_pixmap(path, size):
+@functools.lru_cache(maxsize=256)
+def _circular_cached(path, mtime, size):
     src = QtGui.QPixmap(path)
     if src.isNull():
         return None
@@ -1396,6 +1406,33 @@ def _circular_pixmap(path, size):
     p.drawPixmap((size - src.width()) // 2, (size - src.height()) // 2, src)
     p.end()
     return out
+
+
+def _mtime(path):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+
+def rounded_pixmap_from_path(path, size=40, radius=10):
+    if not path:
+        return None
+    mt = _mtime(path)
+    return _rounded_cached(path, mt, size, radius) if mt is not None else None
+
+
+def _circular_pixmap(path, size):
+    mt = _mtime(path)
+    return _circular_cached(path, mt, size) if mt is not None else None
+
+
+def _clear_pixmap_caches():
+    """Free cached QPixmaps before QApplication is torn down (QPixmaps destroyed
+    after the GUI app crash on exit). Wired to QApplication.aboutToQuit."""
+    _SVG_PM_CACHE.clear()
+    _rounded_cached.cache_clear()
+    _circular_cached.cache_clear()
 
 
 def _medal_icon(size=38, radius=9):
@@ -1847,6 +1884,8 @@ class PopupWindow(QtWidgets.QWidget):
         self._last_hide = 0.0
         self._base_status = ""   # "real" status text, restored when not hovering
         self._hovering = False
+        self._loaded = False     # feed/tracked built lazily on first open (fast startup)
+        self._tracked_dirty = False
         self._build()
 
     # ---- ui ----
@@ -1968,7 +2007,8 @@ class PopupWindow(QtWidgets.QWidget):
         self.status.setObjectName("status")
         v.addWidget(self.status)
 
-        self._load_initial()
+        # feed + tracked rows are built lazily on first open (see _ensure_loaded)
+        # so startup is fast and we do no work if the panel is never opened.
 
         # keep the "just now / Nm ago" labels fresh while the panel is open
         self._time_timer = QtCore.QTimer(self)
@@ -1995,7 +2035,10 @@ class PopupWindow(QtWidgets.QWidget):
         return inner, lay, scroll
 
     # ---- data into ui ----
-    def _load_initial(self):
+    def _ensure_loaded(self):
+        if self._loaded:
+            return
+        self._loaded = True
         for event in reversed(load_history()):   # oldest first so newest ends on top
             self._add_card(event)
         self._refresh_empty(self.recent_lay, "no updates yet — they'll show up here")
@@ -2020,9 +2063,13 @@ class PopupWindow(QtWidgets.QWidget):
             self._drop_item(self.recent_lay.takeAt(self.recent_lay.count() - 2))
 
     def on_update_event(self, event):
-        self._add_card(event)
+        # if not built yet, the event is already in history and loads on first open
+        if self._loaded:
+            self._add_card(event)
 
     def reload_recent(self):
+        if not self._loaded:
+            return
         while self.recent_lay.count() > 1:
             self._drop_item(self.recent_lay.takeAt(0))
         for event in reversed(load_history()):
@@ -2030,6 +2077,12 @@ class PopupWindow(QtWidgets.QWidget):
         self._refresh_empty(self.recent_lay, "no updates yet — they'll show up here")
 
     def refresh_tracked(self):
+        if not self._loaded:
+            return
+        if not POPUP_VISIBLE:
+            self._tracked_dirty = True   # rebuild when reopened, not while hidden
+            return
+        self._tracked_dirty = False
         # clear everything except the trailing stretch
         while self.tracked_lay.count() > 1:
             self._drop_item(self.tracked_lay.takeAt(0))
@@ -2250,6 +2303,9 @@ class PopupWindow(QtWidgets.QWidget):
     def showEvent(self, e):
         global POPUP_VISIBLE
         POPUP_VISIBLE = True
+        self._ensure_loaded()         # build feed/tracked on first open
+        if self._tracked_dirty:       # tracked changed while we were hidden
+            self.refresh_tracked()
         self._tick_times()            # refresh times right away when opened
         self._time_timer.start()
         super().showEvent(e)
@@ -2344,6 +2400,7 @@ def main():
     app.setWindowIcon(app_qicon())
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(STYLESHEET)
+    app.aboutToQuit.connect(_clear_pixmap_caches)   # free cached QPixmaps before teardown
 
     register_aumid()
     TOASTS_ON = True
