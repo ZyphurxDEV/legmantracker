@@ -9,6 +9,19 @@ The Roblox-fetching logic comes from the Discord bot; here it routes updates to
 Windows toasts + an in-app feed instead of Discord embeds. The UI is built with
 Qt (PySide6) — no browser, no console.
 
+## Download
+
+Grab the latest **`LegmanTracker.exe`** from the
+[**Releases**](https://github.com/ZyphurxDEV/legmantracker/releases/latest) page,
+then just run it — no Python, no installer. It's a single ~38 MB file you can put
+anywhere (Desktop, a folder, wherever).
+
+> **First run:** because the app isn't code-signed, Windows SmartScreen may say
+> *"Windows protected your PC."* Click **More info → Run anyway**. This is normal
+> for small indie apps; signing certificates cost money.
+
+Want to build it yourself instead? See [Building the .exe yourself](#building-the-exe-yourself).
+
 ## What it can notify on (per game)
 
 Every tracked game has its own **⚙ settings** (the cogwheel on its row in the
@@ -30,9 +43,9 @@ badges so you don't get a flood of "new badge" alerts for existing ones).
 
 ## Using it
 
-Run **`LegmanTracker.exe`** (in `dist` after building). The icon appears in the
-system tray near the clock — click the `^` ("show hidden icons") if you don't see
-it.
+Run **`LegmanTracker.exe`** (downloaded from Releases, or in `dist` after
+building). The icon appears in the system tray near the clock — click the `^`
+("show hidden icons") if you don't see it.
 
 - **Left-click the tray icon** → opens the flyout panel:
   - **Recent updates** tab — a live feed of every game/place update, newest on
