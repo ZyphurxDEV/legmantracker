@@ -1254,6 +1254,9 @@ ICON_SVGS = {
     "clear": '<polyline points="3 6 5 6 21 6"/>'
              '<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
     "user": '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    "robux": '<polygon points="12,2.5 20.5,7.25 20.5,16.75 12,21.5 3.5,16.75 3.5,7.25"/>'
+             '<path d="M9.5 16V8h3.3a1.9 1.9 0 0 1 0 3.8H9.5"/>'
+             '<line x1="11.4" y1="11.6" x2="14" y2="16"/>',
 }
 
 def _medal_svg(color):
@@ -1680,11 +1683,14 @@ def make_update_card(event):
     mid.addLayout(top)
     detail_row = QtWidgets.QHBoxLayout()
     detail_row.setSpacing(6)
-    detail = ElidedLabel(event.get("text", ""), "#8a98a4")
+    detail_text, price = _extract_price(event.get("text", ""))
+    detail = ElidedLabel(detail_text, "#8a98a4")
     detail.setObjectName("cardDetail")
     detail_row.addWidget(detail, 1)
     if event.get("owners") is not None:
         detail_row.addWidget(_owners_chip(event["owners"]), 0)
+    elif price is not None:
+        detail_row.addWidget(_robux_chip(price), 0)
     mid.addLayout(detail_row)
     lay.addLayout(mid, 1)
     return card
@@ -1703,6 +1709,37 @@ def _owners_chip(count):
     h.addWidget(icon)
     h.addWidget(num)
     w.setToolTip(f"{count} owners")
+    return w
+
+
+def _extract_price(text):
+    if not text or "R$" not in text:
+        return text, None
+    i = text.find("paid (")
+    if i == -1:
+        return text, None
+    j = text.find(" R$)", i)
+    if j == -1:
+        return text, None
+    num = text[i + 6:j].strip()
+    if not num.isdigit():
+        return text, None
+    return text[:i] + "paid" + text[j + 4:], int(num)
+
+
+def _robux_chip(price):
+    w = QtWidgets.QWidget()
+    h = QtWidgets.QHBoxLayout(w)
+    h.setContentsMargins(0, 0, 0, 0)
+    h.setSpacing(3)
+    icon = QtWidgets.QLabel()
+    icon.setPixmap(svg_pixmap("robux", 12, "#8a98a4"))
+    icon.setFixedSize(12, 12)
+    num = QtWidgets.QLabel(str(price))
+    num.setObjectName("cardDetail")
+    h.addWidget(icon)
+    h.addWidget(num)
+    w.setToolTip(f"{price} Robux to play")
     return w
 
 
@@ -1733,10 +1770,24 @@ def make_tracked_row(key, info, on_remove, on_open, on_settings):
     col.setSpacing(2)
     nlbl = ElidedLabel(name, "#eaf1f6")
     nlbl.setObjectName("trackName")
-    meta = ElidedLabel(f"{status} · {_plural(nsub, 'subplace')} · {_plural(on_count, 'alert')}", "#7a8893")
-    meta.setObjectName("trackMeta")
+    status_txt, price = _extract_price(status)
+    tail = f" · {_plural(nsub, 'subplace')} · {_plural(on_count, 'alert')}"
     col.addWidget(nlbl)
-    col.addWidget(meta)
+    if price is not None:
+        mrow = QtWidgets.QHBoxLayout()
+        mrow.setSpacing(4)
+        paid_lbl = QtWidgets.QLabel(status_txt)
+        paid_lbl.setObjectName("trackMeta")
+        mrow.addWidget(paid_lbl, 0)
+        mrow.addWidget(_robux_chip(price), 0)
+        rest = ElidedLabel(tail, "#7a8893")
+        rest.setObjectName("trackMeta")
+        mrow.addWidget(rest, 1)
+        col.addLayout(mrow)
+    else:
+        meta = ElidedLabel(f"{status_txt}{tail}", "#7a8893")
+        meta.setObjectName("trackMeta")
+        col.addWidget(meta)
     lay.addLayout(col, 1)
 
     cog = QtWidgets.QPushButton()
