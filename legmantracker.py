@@ -449,7 +449,7 @@ async def fetch_game(session, universe_id):
 async def get_status(session, universe_id, game_data, fallback_status="unknown"):
     price = game_data.get("price")
     if price and isinstance(price, (int, float)) and price > 0:
-        return f"paid access ({int(price)} R$)"
+        return f"paid ({int(price)} R$)"
     try:
         async with session.get(
             f"https://games.roblox.com/v1/games/multiget-playability-status?universeIds={universe_id}"
