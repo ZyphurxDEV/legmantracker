@@ -865,7 +865,9 @@ async def poll_once(session):
 
                 need_badges = (notify_cfg["badge_new"] or notify_cfg["badge_delete"]
                                or notify_cfg["badge_rare_award"])
-                if need_badges and current_status != "private/hidden":
+                if not need_badges:
+                    new_info["badges_full_snapshot"] = False
+                elif current_status != "private/hidden":
                     all_badges = await fetch_all_badges(session, universe_id)
                     if all_badges is not None:
                         last_badges = info.get("badges", {})
@@ -928,8 +930,6 @@ async def poll_once(session):
 
                         new_info["badges"] = current_badges
                         new_info["badges_full_snapshot"] = True
-                else:
-                    new_info["badges_full_snapshot"] = False
 
                 if get_unix_ts(current_updated) > get_unix_ts(last_updated or ""):
                     new_info["last_updated"] = current_updated
