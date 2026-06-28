@@ -1082,11 +1082,16 @@ async def backfill_badge_icons(session):
     hist = load_history()
     if not hist:
         return
+    tracked = set(load_tracked().keys())
     changed = False
     fetch_targets = {}
     for ev in hist:
         typ = ev.get("type")
         if typ not in ("badge", "badge_del"):
+            continue
+        # Skip badges whose game is no longer tracked - don't re-download their
+        # icons back into the data folder after the game was removed.
+        if str(ev.get("universe_id")) not in tracked:
             continue
         ov = ev.get("overlay_icon")
         if ov and os.path.exists(ov):
